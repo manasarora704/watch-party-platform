@@ -565,9 +565,21 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
                     </div>
                   </ScrollArea>
 
-                  {/* Chat Input */}
-                  <div className="p-4 border-t border-border/50 shrink-0">
-                    <div className="flex gap-2">
+                  {/* Chat Input (mobile) */}
+                  <div className="shrink-0 border-t border-border/50">
+                    {/* Inline emoji picker – no floating popover that clips in a bottom sheet */}
+                    {emojiOpen && (
+                      <div className="w-full overflow-hidden border-b border-border/30">
+                        <EmojiPicker
+                          theme={Theme.AUTO}
+                          onEmojiClick={onEmojiClick}
+                          lazyLoadEmojis={true}
+                          width="100%"
+                          height={280}
+                        />
+                      </div>
+                    )}
+                    <div className="p-3 flex gap-2">
                       <div className="flex-1 relative">
                         <Input
                           placeholder="Send a message..."
@@ -576,25 +588,12 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
                           onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
                           className="pr-10 bg-input border-border/50 focus:border-primary rounded-full"
                         />
-                        <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
-                          <PopoverTrigger asChild>
-                            <button className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
-                              <Smile className="w-5 h-5" />
-                            </button>
-                          </PopoverTrigger>
-                          <PopoverContent 
-                            side="top" 
-                            align="end" 
-                            sideOffset={10}
-                            className="p-0 border-none bg-transparent shadow-none"
-                          >
-                            <EmojiPicker 
-                              theme={Theme.AUTO} 
-                              onEmojiClick={onEmojiClick}
-                              lazyLoadEmojis={true}
-                            />
-                          </PopoverContent>
-                        </Popover>
+                        <button
+                          onClick={() => setEmojiOpen(!emojiOpen)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          <Smile className={`w-4 h-4 ${emojiOpen ? 'text-primary' : ''}`} />
+                        </button>
                       </div>
                       <Button
                         onClick={handleSendMessage}
