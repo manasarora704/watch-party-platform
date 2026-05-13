@@ -114,7 +114,7 @@ export function RoomsPage() {
       </header>
 
       {/* Main Content */}
-      <main className="relative z-10 flex items-center justify-center min-h-[calc(100vh-120px)] px-6">
+      <main className="relative z-10 flex items-center justify-center min-h-[calc(100dvh-80px)] px-4 py-6">
         <AnimatePresence mode="wait">
           {mode === "select" && (
             <motion.div
@@ -146,7 +146,7 @@ export function RoomsPage() {
                   onClick={() => setMode("create")}
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  className="p-8 rounded-3xl glass hover:bg-card/80 transition-all text-left group"
+                  className="p-5 sm:p-8 rounded-3xl glass hover:bg-card/80 transition-all text-left group w-full"
                 >
                   <div className="w-14 h-14 rounded-2xl bg-primary/20 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
                     <Sparkles className="w-7 h-7 text-primary" />
@@ -165,7 +165,7 @@ export function RoomsPage() {
                   onClick={() => setMode("join")}
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  className="p-8 rounded-3xl glass hover:bg-card/80 transition-all text-left group"
+                  className="p-5 sm:p-8 rounded-3xl glass hover:bg-card/80 transition-all text-left group w-full"
                 >
                   <div className="w-14 h-14 rounded-2xl bg-accent/20 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
                     <Users className="w-7 h-7 text-accent" />
@@ -200,7 +200,7 @@ export function RoomsPage() {
                 <span>Back</span>
               </button>
 
-              <div className="p-8 rounded-3xl glass">
+              <div className="p-5 sm:p-8 rounded-3xl glass">
                 <div className="w-14 h-14 rounded-2xl bg-primary/20 flex items-center justify-center mb-6">
                   <Sparkles className="w-7 h-7 text-primary" />
                 </div>
@@ -264,7 +264,7 @@ export function RoomsPage() {
               transition={{ duration: 0.4 }}
               className="w-full max-w-md text-center"
             >
-              <div className="p-8 rounded-3xl glass">
+              <div className="p-5 sm:p-8 rounded-3xl glass">
                 <div className="w-20 h-20 rounded-full bg-chart-3/20 flex items-center justify-center mx-auto mb-6">
                   <Check className="w-10 h-10 text-chart-3" />
                 </div>
@@ -327,7 +327,7 @@ export function RoomsPage() {
                 <span>Back</span>
               </button>
 
-              <div className="p-8 rounded-3xl glass">
+              <div className="p-5 sm:p-8 rounded-3xl glass">
                 <div className="w-14 h-14 rounded-2xl bg-accent/20 flex items-center justify-center mb-6">
                   <Users className="w-7 h-7 text-accent" />
                 </div>

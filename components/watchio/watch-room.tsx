@@ -269,7 +269,7 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
       <div className="h-screen flex items-center justify-center bg-background">
         <div className="text-center max-w-md">
           <div className="w-16 h-16 rounded-full bg-destructive/20 flex items-center justify-center mx-auto mb-4">
-            <Video className="w-8 h-8 text-destructive" />
+            <VideoIcon className="w-8 h-8 text-destructive" />
           </div>
           <h1 className="text-xl font-bold text-foreground mb-2">Room Not Found</h1>
           <p className="text-muted-foreground mb-6">{error || "This room doesn't exist or has been deleted."}</p>
@@ -284,43 +284,43 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
   const onlineCount = onlineUsers.length || participants.length
 
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden">
+    <div className="h-[100dvh] flex flex-col bg-background overflow-hidden">
       {/* Top Bar */}
-      <header className="flex items-center justify-between px-4 py-3 border-b border-border/50 glass shrink-0">
-        <div className="flex items-center gap-4">
+      <header className="flex items-center justify-between px-3 md:px-4 py-2.5 border-b border-border/50 glass shrink-0 gap-2">
+        <div className="flex items-center gap-2 md:gap-4 min-w-0">
           <button 
             onClick={() => setShowLeaveDialog(true)}
-            className="p-2 rounded-lg hover:bg-secondary transition-colors"
+            className="p-2 rounded-lg hover:bg-secondary transition-colors shrink-0"
           >
             <ArrowLeft className="w-5 h-5 text-muted-foreground" />
           </button>
-          <div>
-            <h1 className="font-semibold text-foreground">{room.name}</h1>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span className="font-mono">{roomCode}</span>
+          <div className="min-w-0">
+            <h1 className="font-semibold text-foreground truncate max-w-[120px] sm:max-w-none">{room.name}</h1>
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <span className="font-mono text-xs">{roomCode}</span>
               <button onClick={handleCopyCode} className="p-1 hover:text-foreground transition-colors">
-                {copied ? <Check className="w-3.5 h-3.5 text-chart-3" /> : <Copy className="w-3.5 h-3.5" />}
+                {copied ? <Check className="w-3 h-3 text-chart-3" /> : <Copy className="w-3 h-3" />}
               </button>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 shrink-0">
           {canChangeVideo && (
             <Button
               variant="outline"
               size="sm"
               onClick={() => setShowChangeVideo(true)}
-              className="gap-2 border-primary/50 text-primary hover:bg-primary/10"
+              className="gap-1.5 border-primary/50 text-primary hover:bg-primary/10 px-2 sm:px-3"
             >
               <VideoIcon className="w-4 h-4" />
-              Change Video
+              <span className="hidden sm:inline">Change Video</span>
             </Button>
           )}
           
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary text-sm">
+          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary text-sm">
             <div className="w-2 h-2 rounded-full bg-chart-3 animate-pulse" />
-            <span>{onlineCount} watching</span>
+            <span>{onlineCount}</span>
           </div>
           <Button
             variant="ghost"
@@ -331,7 +331,7 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
             }}
             className={showParticipants ? "bg-secondary" : ""}
           >
-            <Users className="w-5 h-5" />
+            <Users className="w-4 h-4 md:w-5 md:h-5" />
           </Button>
           <Button
             variant="ghost"
@@ -342,33 +342,33 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
             }}
             className={showChat ? "bg-secondary" : ""}
           >
-            <MessageCircle className="w-5 h-5" />
+            <MessageCircle className="w-4 h-4 md:w-5 md:h-5" />
           </Button>
 
           {/* WebRTC Controls */}
-          <div className="flex items-center gap-1 ml-2 border-l border-border/50 pl-3">
+          <div className="flex items-center gap-0.5 border-l border-border/50 pl-1 ml-1">
             <Button
               variant={isAudioEnabled ? "default" : "ghost"}
               size="icon"
               onClick={toggleAudio}
-              className={isAudioEnabled ? "bg-primary text-primary-foreground" : "text-muted-foreground"}
+              className={`h-8 w-8 md:h-9 md:w-9 ${isAudioEnabled ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
             >
-              {isAudioEnabled ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
+              {isAudioEnabled ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
             </Button>
             <Button
               variant={isVideoEnabled ? "default" : "ghost"}
               size="icon"
               onClick={toggleVideo}
-              className={isVideoEnabled ? "bg-primary text-primary-foreground" : "text-muted-foreground"}
+              className={`h-8 w-8 md:h-9 md:w-9 ${isVideoEnabled ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
             >
-              {isVideoEnabled ? <VideoIcon className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+              {isVideoEnabled ? <VideoIcon className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
             </Button>
           </div>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="ml-1">
-                <Settings className="w-5 h-5" />
+              <Button variant="ghost" size="icon" className="h-8 w-8 md:h-9 md:w-9">
+                <Settings className="w-4 h-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -382,9 +382,9 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
       </header>
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
         {/* Video Player */}
-        <div className="flex-1 flex flex-col bg-black">
+        <div className="flex-1 flex flex-col bg-black min-h-0">
           <div className="flex-1 relative">
             {room.current_video_id ? (
               <div className="absolute inset-0 w-full h-full">
@@ -448,55 +448,53 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
           </div>
 
           {/* Role indicator bar */}
-          <div className="px-4 py-2 bg-card/80 backdrop-blur-sm border-t border-border/50 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <RoleIcon role={currentUser?.role || "participant"} />
-                <span className="text-sm text-muted-foreground">
-                  You are {currentUser?.role === "host" ? "the Host" : currentUser?.role === "moderator" ? "a Moderator" : "a Participant"}
-                </span>
-              </div>
+          <div className="px-3 py-1.5 bg-card/80 backdrop-blur-sm border-t border-border/50 flex items-center justify-between gap-2 shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <RoleIcon role={currentUser?.role || "participant"} />
+              <span className="text-xs text-muted-foreground truncate">
+                {currentUser?.role === "host" ? "Host" : currentUser?.role === "moderator" ? "Moderator" : "Participant"}
+              </span>
             </div>
-            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+            <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
               {canChangeVideo ? (
-                <span className="flex items-center gap-1.5 text-chart-3">
-                  <Check className="w-3.5 h-3.5" />
-                  Can change video
+                <span className="flex items-center gap-1 text-chart-3">
+                  <Check className="w-3 h-3" />
+                  <span className="hidden sm:inline">Can change video</span>
                 </span>
               ) : (
-                <span className="flex items-center gap-1.5">
-                  <Play className="w-3.5 h-3.5" />
-                  Watch only
+                <span className="flex items-center gap-1">
+                  <Play className="w-3 h-3" />
+                  <span className="hidden sm:inline">Watch only</span>
                 </span>
               )}
               {canManageRoles && (
-                <span className="flex items-center gap-1.5 text-primary">
-                  <Crown className="w-3.5 h-3.5" />
-                  Can manage roles
+                <span className="flex items-center gap-1 text-primary">
+                  <Crown className="w-3 h-3" />
+                  <span className="hidden sm:inline">Manage roles</span>
                 </span>
               )}
             </div>
           </div>
         </div>
 
-        {/* Sidebar */}
+        {/* Sidebar — desktop: right panel | mobile: bottom sheet */}
         <AnimatePresence>
           {(showChat || showParticipants) && (
             <motion.aside
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 360, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.3 }}
-              className="border-l border-border/50 flex flex-col glass overflow-hidden shrink-0"
+              className="md:hidden border-t border-border/50 flex flex-col glass overflow-hidden shrink-0"
+              style={{ maxHeight: "45dvh" }}
             >
-              {/* Tabs */}
+              {/* mobile inner — scroll contained */}
+              <div className="flex flex-col h-full overflow-hidden">
+              {/* Tabs (shared between mobile & desktop, rendered once) */}
               <div className="flex border-b border-border/50 shrink-0">
                 <button
-                  onClick={() => {
-                    setShowChat(true)
-                    setShowParticipants(false)
-                  }}
-                  className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                  onClick={() => { setShowChat(true); setShowParticipants(false) }}
+                  className={`flex-1 px-4 py-2.5 text-sm font-medium transition-colors ${
                     showChat && !showParticipants
                       ? "text-foreground border-b-2 border-primary"
                       : "text-muted-foreground hover:text-foreground"
@@ -505,11 +503,8 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
                   Chat
                 </button>
                 <button
-                  onClick={() => {
-                    setShowParticipants(true)
-                    setShowChat(false)
-                  }}
-                  className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                  onClick={() => { setShowParticipants(true); setShowChat(false) }}
+                  className={`flex-1 px-4 py-2.5 text-sm font-medium transition-colors ${
                     showParticipants
                       ? "text-foreground border-b-2 border-primary"
                       : "text-muted-foreground hover:text-foreground"
@@ -669,6 +664,157 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
                             canManageRoles={canManageRoles}
                             onRoleChange={handleRoleChange}
                           />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </ScrollArea>
+              )}
+            </div>{/* end mobile inner */}
+            </motion.aside>
+          )}
+        </AnimatePresence>
+
+        {/* Desktop Sidebar */}
+        <AnimatePresence>
+          {(showChat || showParticipants) && (
+            <motion.aside
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: 340, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="hidden md:flex border-l border-border/50 flex-col glass overflow-hidden shrink-0"
+            >
+              {/* Tabs */}
+              <div className="flex border-b border-border/50 shrink-0">
+                <button
+                  onClick={() => { setShowChat(true); setShowParticipants(false) }}
+                  className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                    showChat && !showParticipants
+                      ? "text-foreground border-b-2 border-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Chat
+                </button>
+                <button
+                  onClick={() => { setShowParticipants(true); setShowChat(false) }}
+                  className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                    showParticipants
+                      ? "text-foreground border-b-2 border-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  People ({onlineCount})
+                </button>
+              </div>
+
+              {/* Chat (desktop) */}
+              {showChat && !showParticipants && (
+                <div className="flex-1 flex flex-col overflow-hidden">
+                  <ScrollArea className="flex-1 p-4">
+                    <div className="space-y-3">
+                      {messages.map((msg) => (
+                        <div key={msg.id}>
+                          {msg.message_type === "system" ? (
+                            <div className="text-center py-1">
+                              <span className="text-xs text-muted-foreground bg-secondary/50 px-3 py-1 rounded-full">
+                                {msg.content}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex gap-2.5">
+                              <div
+                                className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 text-white shadow-sm"
+                                style={{ background: getAvatarColor(msg.user_id) }}
+                              >
+                                {msg.profiles?.username?.[0]?.toUpperCase() || "?"}
+                              </div>
+                              <div className="flex-1 min-w-0 bg-secondary/20 p-2 rounded-2xl rounded-tl-sm">
+                                <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                                  {(() => {
+                                    const participant = participants.find(p => p.user_id === msg.user_id)
+                                    const isHost = participant?.role === "host"
+                                    const isMod = participant?.role === "moderator"
+                                    return (
+                                      <>
+                                        <span className={`font-bold text-sm ${isHost ? 'text-primary' : isMod ? 'text-accent' : 'text-foreground'}`}>
+                                          {msg.profiles?.username || "Unknown"}
+                                        </span>
+                                        {participant && <RoleBadge role={participant.role} />}
+                                      </>
+                                    )
+                                  })()}
+                                  <span className="text-[10px] text-muted-foreground ml-auto">
+                                    {new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                  </span>
+                                </div>
+                                <p className="text-sm leading-snug text-foreground/90 break-words">{msg.content}</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      <div ref={chatEndRef} />
+                    </div>
+                  </ScrollArea>
+                  <div className="p-3 border-t border-border/50 shrink-0">
+                    <div className="flex gap-2">
+                      <div className="flex-1 relative">
+                        <Input
+                          placeholder="Send a message..."
+                          value={messageInput}
+                          onChange={(e) => setMessageInput(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
+                          className="pr-10 bg-input border-border/50 focus:border-primary rounded-full"
+                        />
+                        <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+                          <PopoverTrigger asChild>
+                            <button className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                              <Smile className="w-4 h-4" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent side="top" align="end" sideOffset={10} className="p-0 border-none bg-transparent shadow-none">
+                            <EmojiPicker theme={Theme.AUTO} onEmojiClick={onEmojiClick} lazyLoadEmojis={true} />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                      <Button
+                        onClick={handleSendMessage}
+                        size="icon"
+                        disabled={!messageInput.trim()}
+                        className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-full shrink-0"
+                      >
+                        <Send className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Participants (desktop) */}
+              {showParticipants && (
+                <ScrollArea className="flex-1 p-4">
+                  <div className="space-y-1">
+                    <div className="mb-4">
+                      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-2">Host</h3>
+                      {participants.filter(p => p.role === "host").map((participant) => (
+                        <ParticipantItem key={participant.id} participant={participant} currentUserId={currentUser?.id} isOnline={onlineUsers.includes(participant.user_id)} canManageRoles={canManageRoles} onRoleChange={handleRoleChange} />
+                      ))}
+                    </div>
+                    {participants.some(p => p.role === "moderator") && (
+                      <div className="mb-4">
+                        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-2">Moderators</h3>
+                        {participants.filter(p => p.role === "moderator").map((participant) => (
+                          <ParticipantItem key={participant.id} participant={participant} currentUserId={currentUser?.id} isOnline={onlineUsers.includes(participant.user_id)} canManageRoles={canManageRoles} onRoleChange={handleRoleChange} />
+                        ))}
+                      </div>
+                    )}
+                    {participants.some(p => p.role === "participant") && (
+                      <div>
+                        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-2">Participants</h3>
+                        {participants.filter(p => p.role === "participant").map((participant) => (
+                          <ParticipantItem key={participant.id} participant={participant} currentUserId={currentUser?.id} isOnline={onlineUsers.includes(participant.user_id)} canManageRoles={canManageRoles} onRoleChange={handleRoleChange} />
                         ))}
                       </div>
                     )}

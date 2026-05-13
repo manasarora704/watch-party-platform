@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 
 export function Hero() {
   return (
-    <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-20">
+    <section className="relative min-h-[100dvh] flex items-center justify-center overflow-hidden pt-20 px-4">
       {/* Ambient Background Effects */}
       <div className="absolute inset-0 overflow-hidden">
         {/* Primary glow */}
@@ -25,7 +25,7 @@ export function Hero() {
         />
       </div>
 
-      <div className="container mx-auto px-6 relative z-10">
+      <div className="container mx-auto relative z-10">
         <div className="max-w-5xl mx-auto text-center">
           {/* Badge */}
           <motion.div
@@ -43,7 +43,7 @@ export function Hero() {
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.1 }}
-            className="text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight mb-6 text-balance"
+            className="text-4xl sm:text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight mb-6 text-balance"
           >
             Watch Together.
             <br />
