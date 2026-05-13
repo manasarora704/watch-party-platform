@@ -1,4 +1,4 @@
-export type Role = 'host' | 'moderator' | 'viewer'
+export type Role = 'host' | 'moderator' | 'participant'
 
 export interface Profile {
   id: string

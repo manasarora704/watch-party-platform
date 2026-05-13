@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import YouTube, { YouTubeEvent, YouTubePlayer } from "react-youtube"
 import { 
   Users,
   MessageCircle,
@@ -15,12 +16,15 @@ import {
   Check,
   ArrowLeft,
   Settings,
-  Smile,
-  Play,
-  Video,
   LogOut,
   Loader2,
-  ChevronDown
+  ChevronDown,
+  Mic,
+  MicOff,
+  Video as VideoIcon,
+  VideoOff,
+  Smile,
+  Play
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -40,7 +44,14 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import EmojiPicker, { Theme } from 'emoji-picker-react'
 import { useRoom } from "@/hooks/use-room"
+import { useWebRTC } from "@/hooks/use-webrtc"
 import { sendMessage, updateVideo, updateParticipantRole, leaveRoom } from "@/lib/actions/rooms"
 import type { Role } from "@/lib/types"
 
@@ -76,7 +87,7 @@ function RoleBadge({ role }: { role: Role }) {
   return (
     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground">
       <User className="w-3 h-3" />
-      Viewer
+      Participant
     </span>
   )
 }
@@ -104,9 +115,38 @@ function getAvatarColor(userId: string): string {
   return colors[Math.abs(hash) % colors.length]
 }
 
+function VideoStream({ stream, muted = false, label }: { stream: MediaStream | null, muted?: boolean, label: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream
+    }
+  }, [stream])
+  
+  if (!stream) return null
+  
+  return (
+    <div className="relative w-32 h-24 shrink-0 rounded-lg overflow-hidden bg-black/80 border border-white/10 shadow-lg group">
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted={muted}
+        className="w-full h-full object-cover"
+      />
+      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent p-1.5 pt-4">
+        <span className="text-[10px] font-medium text-white shadow-sm truncate block px-1">
+          {label}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export function WatchRoom({ roomCode }: { roomCode: string }) {
   const router = useRouter()
-  const { room, participants, messages, currentUser, loading, error } = useRoom(roomCode)
+  const { room, participants, messages, currentUser, onlineUsers, emitPlaybackSync, addOptimisticMessage, loading, error } = useRoom(roomCode)
   
   const [videoUrl, setVideoUrl] = useState("")
   const [showChangeVideo, setShowChangeVideo] = useState(false)
@@ -117,7 +157,10 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
   const [messageInput, setMessageInput] = useState("")
   const [sending, setSending] = useState(false)
   const [showLeaveDialog, setShowLeaveDialog] = useState(false)
+  const [emojiOpen, setEmojiOpen] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  
+  const { localStream, remoteStreams, isAudioEnabled, isVideoEnabled, toggleAudio, toggleVideo } = useWebRTC(room?.id || "", currentUser?.id)
 
   const canChangeVideo = currentUser?.role === "host" || currentUser?.role === "moderator"
   const canManageRoles = currentUser?.role === "host"
@@ -132,12 +175,54 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const playerRef = useRef<YouTubePlayer | null>(null)
+
+  useEffect(() => {
+    const player = playerRef.current
+    if (!player || !room) return
+
+    const playerState = player.getPlayerState?.()
+    if (room.is_playing && playerState !== 1) {
+      player.playVideo()
+    } else if (!room.is_playing && playerState === 1) {
+      player.pauseVideo()
+    }
+
+    const currentTime = player.getCurrentTime?.() || 0
+    if (Math.abs(currentTime - room.playback_time) > 2) {
+      player.seekTo(room.playback_time, true)
+    }
+  }, [room?.is_playing, room?.playback_time])
+
+  const handleStateChange = (event: YouTubeEvent) => {
+    if (!canChangeVideo || !room) return
+
+    const isPlaying = event.data === 1
+    const isPaused = event.data === 2
+    
+    if (isPlaying || isPaused) {
+      const currentTime = event.target.getCurrentTime()
+      emitPlaybackSync(isPlaying, currentTime)
+      
+      if (isPlaying !== room.is_playing) {
+        import("@/lib/actions/rooms").then(m => m.syncPlayback(room.id, isPlaying, currentTime))
+      }
+    }
+  }
+
   const handleSendMessage = async () => {
     if (!messageInput.trim() || !room || sending) return
-    setSending(true)
-    await sendMessage(room.id, messageInput.trim())
+    const content = messageInput.trim()
     setMessageInput("")
-    setSending(false)
+    addOptimisticMessage(content)
+    
+    // Fire and forget
+    sendMessage(room.id, content).catch(console.error)
+  }
+
+  const onEmojiClick = (emojiData: any) => {
+    setMessageInput((prev) => prev + emojiData.emoji)
+    setEmojiOpen(false)
   }
 
   const handleChangeVideo = async () => {
@@ -196,7 +281,7 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
     )
   }
 
-  const onlineCount = participants.length
+  const onlineCount = onlineUsers.length || participants.length
 
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
@@ -228,7 +313,7 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
               onClick={() => setShowChangeVideo(true)}
               className="gap-2 border-primary/50 text-primary hover:bg-primary/10"
             >
-              <Video className="w-4 h-4" />
+              <VideoIcon className="w-4 h-4" />
               Change Video
             </Button>
           )}
@@ -259,9 +344,30 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
           >
             <MessageCircle className="w-5 h-5" />
           </Button>
+
+          {/* WebRTC Controls */}
+          <div className="flex items-center gap-1 ml-2 border-l border-border/50 pl-3">
+            <Button
+              variant={isAudioEnabled ? "default" : "ghost"}
+              size="icon"
+              onClick={toggleAudio}
+              className={isAudioEnabled ? "bg-primary text-primary-foreground" : "text-muted-foreground"}
+            >
+              {isAudioEnabled ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
+            </Button>
+            <Button
+              variant={isVideoEnabled ? "default" : "ghost"}
+              size="icon"
+              onClick={toggleVideo}
+              className={isVideoEnabled ? "bg-primary text-primary-foreground" : "text-muted-foreground"}
+            >
+              {isVideoEnabled ? <VideoIcon className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+            </Button>
+          </div>
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
+              <Button variant="ghost" size="icon" className="ml-1">
                 <Settings className="w-5 h-5" />
               </Button>
             </DropdownMenuTrigger>
@@ -281,17 +387,30 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
         <div className="flex-1 flex flex-col bg-black">
           <div className="flex-1 relative">
             {room.current_video_id ? (
-              <iframe
-                src={`https://www.youtube.com/embed/${room.current_video_id}?autoplay=1&rel=0&modestbranding=1`}
-                title="YouTube video player"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                allowFullScreen
-                className="absolute inset-0 w-full h-full"
-              />
+              <div className="absolute inset-0 w-full h-full">
+                <YouTube
+                  videoId={room.current_video_id}
+                  opts={{
+                    height: '100%',
+                    width: '100%',
+                    playerVars: {
+                      autoplay: 1,
+                      rel: 0,
+                      modestbranding: 1,
+                      controls: canChangeVideo ? 1 : 0,
+                      disablekb: canChangeVideo ? 0 : 1,
+                    },
+                  }}
+                  onReady={(e) => { playerRef.current = e.target }}
+                  onStateChange={handleStateChange}
+                  className="w-full h-full"
+                  iframeClassName="w-full h-full border-0 pointer-events-auto"
+                />
+              </div>
             ) : (
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-center">
-                  <Video className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                  <VideoIcon className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
                   <h2 className="text-xl font-semibold text-foreground mb-2">No Video Playing</h2>
                   <p className="text-muted-foreground mb-4">
                     {canChangeVideo 
@@ -300,11 +419,30 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
                   </p>
                   {canChangeVideo && (
                     <Button onClick={() => setShowChangeVideo(true)}>
-                      <Video className="w-4 h-4 mr-2" />
+                      <VideoIcon className="w-4 h-4 mr-2" />
                       Add Video
                     </Button>
                   )}
                 </div>
+              </div>
+            )}
+            
+            {/* WebRTC Video Grid (Floating at bottom of player) */}
+            {(localStream || Object.keys(remoteStreams).length > 0) && (
+              <div className="absolute bottom-4 left-4 right-4 flex items-end gap-3 overflow-x-auto pb-2 pointer-events-auto z-10 custom-scrollbar">
+                {localStream && (
+                  <VideoStream stream={localStream} muted={true} label="You" />
+                )}
+                {Object.entries(remoteStreams).map(([peerId, stream]) => {
+                  const participant = participants.find(p => p.user_id === peerId)
+                  return (
+                    <VideoStream 
+                      key={peerId} 
+                      stream={stream} 
+                      label={participant?.profiles?.username || "Someone"} 
+                    />
+                  )
+                })}
               </div>
             )}
           </div>
@@ -313,9 +451,9 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
           <div className="px-4 py-2 bg-card/80 backdrop-blur-sm border-t border-border/50 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
-                <RoleIcon role={currentUser?.role || "viewer"} />
+                <RoleIcon role={currentUser?.role || "participant"} />
                 <span className="text-sm text-muted-foreground">
-                  You are {currentUser?.role === "host" ? "the Host" : currentUser?.role === "moderator" ? "a Moderator" : "a Viewer"}
+                  You are {currentUser?.role === "host" ? "the Host" : currentUser?.role === "moderator" ? "a Moderator" : "a Participant"}
                 </span>
               </div>
             </div>
@@ -397,23 +535,32 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
                           ) : (
                             <div className="flex gap-3">
                               <div
-                                className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium shrink-0 text-white"
+                                className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 text-white shadow-sm"
                                 style={{ background: getAvatarColor(msg.user_id) }}
                               >
                                 {msg.profiles?.username?.[0]?.toUpperCase() || "?"}
                               </div>
-                              <div className="flex-1 min-w-0">
+                              <div className="flex-1 min-w-0 bg-secondary/20 p-2.5 rounded-2xl rounded-tl-sm">
                                 <div className="flex items-center gap-2 mb-1">
-                                  <span className="font-medium text-sm">{msg.profiles?.username || "Unknown"}</span>
                                   {(() => {
                                     const participant = participants.find(p => p.user_id === msg.user_id)
-                                    return participant ? <RoleBadge role={participant.role} /> : null
+                                    const isHost = participant?.role === "host"
+                                    const isMod = participant?.role === "moderator"
+                                    
+                                    return (
+                                      <>
+                                        <span className={`font-bold text-sm ${isHost ? 'text-primary' : isMod ? 'text-accent' : 'text-foreground'}`}>
+                                          {msg.profiles?.username || "Unknown"}
+                                        </span>
+                                        {participant && <RoleBadge role={participant.role} />}
+                                      </>
+                                    )
                                   })()}
-                                  <span className="text-xs text-muted-foreground">
+                                  <span className="text-[10px] text-muted-foreground ml-auto">
                                     {new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                                   </span>
                                 </div>
-                                <p className="text-sm text-foreground/90 break-words">{msg.content}</p>
+                                <p className="text-[15px] leading-snug text-foreground/90 break-words">{msg.content}</p>
                               </div>
                             </div>
                           )}
@@ -432,19 +579,35 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
                           value={messageInput}
                           onChange={(e) => setMessageInput(e.target.value)}
                           onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
-                          className="pr-10 bg-input border-border/50 focus:border-primary"
+                          className="pr-10 bg-input border-border/50 focus:border-primary rounded-full"
                         />
-                        <button className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
-                          <Smile className="w-5 h-5" />
-                        </button>
+                        <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+                          <PopoverTrigger asChild>
+                            <button className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                              <Smile className="w-5 h-5" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent 
+                            side="top" 
+                            align="end" 
+                            sideOffset={10}
+                            className="p-0 border-none bg-transparent shadow-none"
+                          >
+                            <EmojiPicker 
+                              theme={Theme.AUTO} 
+                              onEmojiClick={onEmojiClick}
+                              lazyLoadEmojis={true}
+                            />
+                          </PopoverContent>
+                        </Popover>
                       </div>
                       <Button
                         onClick={handleSendMessage}
                         size="icon"
-                        disabled={sending || !messageInput.trim()}
-                        className="bg-primary text-primary-foreground hover:bg-primary/90"
+                        disabled={!messageInput.trim()}
+                        className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-full shrink-0"
                       >
-                        {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                        <Send className="w-4 h-4" />
                       </Button>
                     </div>
                   </div>
@@ -465,6 +628,7 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
                           key={participant.id}
                           participant={participant}
                           currentUserId={currentUser?.id}
+                          isOnline={onlineUsers.includes(participant.user_id)}
                           canManageRoles={canManageRoles}
                           onRoleChange={handleRoleChange}
                         />
@@ -482,6 +646,7 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
                             key={participant.id}
                             participant={participant}
                             currentUserId={currentUser?.id}
+                            isOnline={onlineUsers.includes(participant.user_id)}
                             canManageRoles={canManageRoles}
                             onRoleChange={handleRoleChange}
                           />
@@ -489,17 +654,18 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
                       </div>
                     )}
 
-                    {/* Section: Viewers */}
-                    {participants.some(p => p.role === "viewer") && (
+                    {/* Section: Participants */}
+                    {participants.some(p => p.role === "participant") && (
                       <div>
                         <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-2">
-                          Viewers
+                          Participants
                         </h3>
-                        {participants.filter(p => p.role === "viewer").map((participant) => (
+                        {participants.filter(p => p.role === "participant").map((participant) => (
                           <ParticipantItem
                             key={participant.id}
                             participant={participant}
                             currentUserId={currentUser?.id}
+                            isOnline={onlineUsers.includes(participant.user_id)}
                             canManageRoles={canManageRoles}
                             onRoleChange={handleRoleChange}
                           />
@@ -584,11 +750,12 @@ interface ParticipantItemProps {
     }
   }
   currentUserId?: string
+  isOnline: boolean
   canManageRoles: boolean
   onRoleChange: (userId: string, role: Role) => void
 }
 
-function ParticipantItem({ participant, currentUserId, canManageRoles, onRoleChange }: ParticipantItemProps) {
+function ParticipantItem({ participant, currentUserId, isOnline, canManageRoles, onRoleChange }: ParticipantItemProps) {
   const isCurrentUser = participant.user_id === currentUserId
   const canManageThisUser = canManageRoles && !isCurrentUser && participant.role !== "host"
 
@@ -602,7 +769,7 @@ function ParticipantItem({ participant, currentUserId, canManageRoles, onRoleCha
           >
             {participant.profiles?.username?.[0]?.toUpperCase() || "?"}
           </div>
-          <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-chart-3 rounded-full border-2 border-background" />
+          <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${isOnline ? 'bg-chart-2' : 'bg-muted'}`} />
         </div>
         <div>
           <div className="flex items-center gap-2">
@@ -627,14 +794,14 @@ function ParticipantItem({ participant, currentUserId, canManageRoles, onRoleCha
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            {participant.role === "viewer" && (
+            {participant.role === "participant" && (
               <DropdownMenuItem onClick={() => onRoleChange(participant.user_id, "moderator")}>
                 <Shield className="w-4 h-4 mr-2 text-accent" />
                 Make Moderator
               </DropdownMenuItem>
             )}
             {participant.role === "moderator" && (
-              <DropdownMenuItem onClick={() => onRoleChange(participant.user_id, "viewer")}>
+              <DropdownMenuItem onClick={() => onRoleChange(participant.user_id, "participant")}>
                 <User className="w-4 h-4 mr-2" />
                 Remove Moderator
               </DropdownMenuItem>

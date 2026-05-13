@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { getGuestSession } from "@/lib/actions/auth"
 import type { Room, RoomParticipant, Message, Profile, Role } from "@/lib/types"
 
 interface ParticipantWithProfile extends RoomParticipant {
@@ -17,10 +18,20 @@ export function useRoom(roomCode: string) {
   const [participants, setParticipants] = useState<ParticipantWithProfile[]>([])
   const [messages, setMessages] = useState<MessageWithProfile[]>([])
   const [currentUser, setCurrentUser] = useState<{ id: string; role: Role } | null>(null)
+  const [onlineUsers, setOnlineUsers] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const supabase = createClient()
+
+  const emitPlaybackSync = useCallback((isPlaying: boolean, playbackTime: number) => {
+    if (!room) return
+    supabase.channel(`room:${room.id}`).send({
+      type: 'broadcast',
+      event: 'playback_sync',
+      payload: { is_playing: isPlaying, playback_time: playbackTime }
+    })
+  }, [room, supabase])
 
   const fetchRoom = useCallback(async () => {
     const { data: roomData, error: roomError } = await supabase
@@ -70,10 +81,10 @@ export function useRoom(roomCode: string) {
     let mounted = true
 
     const init = async () => {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        setError("Not authenticated")
+      // Get current user via custom guest session
+      const userId = await getGuestSession()
+      if (!userId) {
+        setError("Not authenticated. Return to the main page to set a nickname.")
         setLoading(false)
         return
       }
@@ -86,9 +97,9 @@ export function useRoom(roomCode: string) {
       const participantsData = await fetchParticipants(roomData.id)
       
       // Find current user's role
-      const currentParticipant = participantsData?.find(p => p.user_id === user.id)
+      const currentParticipant = participantsData?.find(p => p.user_id === userId)
       if (currentParticipant) {
-        setCurrentUser({ id: user.id, role: currentParticipant.role as Role })
+        setCurrentUser({ id: userId, role: currentParticipant.role as Role })
       }
 
       // Fetch messages
@@ -98,7 +109,18 @@ export function useRoom(roomCode: string) {
 
       // Set up realtime subscriptions
       const roomChannel = supabase
-        .channel(`room:${roomData.id}`)
+        .channel(`room:${roomData.id}`, {
+          config: {
+            presence: { key: userId },
+          },
+        })
+        .on('presence', { event: 'sync' }, () => {
+          const newState = roomChannel.presenceState()
+          setOnlineUsers(Object.keys(newState))
+        })
+        .on('broadcast', { event: 'playback_sync' }, (payload) => {
+          setRoom(prev => prev ? { ...prev, ...payload.payload } : prev)
+        })
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "rooms", filter: `id=eq.${roomData.id}` },
@@ -120,11 +142,11 @@ export function useRoom(roomCode: string) {
               .from("room_participants")
               .select("role")
               .eq("room_id", roomData.id)
-              .eq("user_id", user.id)
+              .eq("user_id", userId)
               .single()
             
             if (updatedParticipant) {
-              setCurrentUser({ id: user.id, role: updatedParticipant.role as Role })
+              setCurrentUser({ id: userId, role: updatedParticipant.role as Role })
             }
           }
         )
@@ -132,6 +154,14 @@ export function useRoom(roomCode: string) {
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "messages", filter: `room_id=eq.${roomData.id}` },
           async (payload) => {
+            // Check if we already have this message optimistically
+            setMessages(prev => {
+              if (prev.some(m => m.id === payload.new.id || (m.content === payload.new.content && m.user_id === payload.new.user_id && new Date(payload.new.created_at).getTime() - new Date(m.created_at).getTime() < 2000))) {
+                return prev;
+              }
+              return prev;
+            });
+
             // Fetch the new message with profile
             const { data: newMessage } = await supabase
               .from("messages")
@@ -140,11 +170,19 @@ export function useRoom(roomCode: string) {
               .single()
 
             if (newMessage) {
-              setMessages(prev => [...prev, newMessage as MessageWithProfile])
+              setMessages(prev => {
+                // Remove the optimistic message if it exists (match by content, user_id, and close timestamp)
+                const filtered = prev.filter(m => !(m.content === newMessage.content && m.user_id === newMessage.user_id && Math.abs(new Date(newMessage.created_at).getTime() - new Date(m.created_at).getTime()) < 5000));
+                return [...filtered, newMessage as MessageWithProfile]
+              })
             }
           }
         )
-        .subscribe()
+        .subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+            await roomChannel.track({ online_at: new Date().toISOString() })
+          }
+        })
 
       return () => {
         supabase.removeChannel(roomChannel)
@@ -158,11 +196,37 @@ export function useRoom(roomCode: string) {
     }
   }, [roomCode, supabase, fetchRoom, fetchParticipants, fetchMessages])
 
+  const addOptimisticMessage = useCallback((content: string) => {
+    if (!room || !currentUser) return
+    
+    const currentUserProfile = participants.find(p => p.user_id === currentUser.id)?.profiles
+    
+    const optimisticMsg: MessageWithProfile = {
+      id: crypto.randomUUID(),
+      room_id: room.id,
+      user_id: currentUser.id,
+      content,
+      message_type: 'user',
+      created_at: new Date().toISOString(),
+      profiles: currentUserProfile || {
+        id: currentUser.id,
+        username: "You",
+        avatar_url: null,
+        created_at: new Date().toISOString()
+      }
+    }
+    
+    setMessages(prev => [...prev, optimisticMsg])
+  }, [room, currentUser, participants])
+
   return {
     room,
     participants,
     messages,
     currentUser,
+    onlineUsers,
+    emitPlaybackSync,
+    addOptimisticMessage,
     loading,
     error,
     refetchParticipants: () => room && fetchParticipants(room.id),

@@ -16,6 +16,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { createRoom, joinRoom } from "@/lib/actions/rooms"
+import { setGuestSession } from "@/lib/actions/auth"
 
 type Mode = "select" | "create" | "join"
 
@@ -40,10 +42,25 @@ export function RoomsPage() {
   const handleCreateRoom = async () => {
     if (!username.trim() || !roomTitle.trim()) return
     setIsCreating(true)
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 800))
-    const code = generateRoomCode()
-    setGeneratedCode(code)
+    
+    // Set custom guest session cookie
+    const session = await setGuestSession(username)
+    if (!session) {
+      alert("Failed to initialize session")
+      setIsCreating(false)
+      return
+    }
+
+    const result = await createRoom(roomTitle)
+    if (result.error) {
+      alert("Error creating room: " + result.error)
+      setIsCreating(false)
+      return
+    }
+    
+    if (result.room) {
+      setGeneratedCode(result.room.code)
+    }
     setIsCreating(false)
   }
 
@@ -53,9 +70,22 @@ export function RoomsPage() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const handleJoinRoom = () => {
+  const handleJoinRoom = async () => {
     if (!username.trim() || !roomCode.trim()) return
-    // Navigate to watch room
+    
+    // Set custom guest session cookie
+    const session = await setGuestSession(username)
+    if (!session) {
+      alert("Failed to initialize session")
+      return
+    }
+
+    const result = await joinRoom(roomCode)
+    if (result.error) {
+      alert(result.error)
+      return
+    }
+
     window.location.href = `/watch/${roomCode.toUpperCase()}`
   }
 

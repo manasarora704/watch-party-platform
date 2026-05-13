@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { revalidatePath } from "next/cache"
 import type { Role } from "@/lib/types"
+import { getGuestSession } from "./auth"
 
 function generateRoomCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -16,8 +17,8 @@ function generateRoomCode(): string {
 export async function createRoom(name: string) {
   const supabase = await createClient()
   
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  if (userError || !user) {
+  const userId = await getGuestSession()
+  if (!userId) {
     return { error: "Not authenticated" }
   }
 
@@ -42,7 +43,7 @@ export async function createRoom(name: string) {
     .insert({
       code,
       name,
-      host_id: user.id,
+      host_id: userId,
     })
     .select()
     .single()
@@ -56,7 +57,7 @@ export async function createRoom(name: string) {
     .from("room_participants")
     .insert({
       room_id: room.id,
-      user_id: user.id,
+      user_id: userId,
       role: "host" as Role,
     })
 
@@ -67,7 +68,7 @@ export async function createRoom(name: string) {
   // Add system message
   await supabase.from("messages").insert({
     room_id: room.id,
-    user_id: user.id,
+    user_id: userId,
     content: "Room created! Share the code to invite friends.",
     message_type: "system",
   })
@@ -79,8 +80,8 @@ export async function createRoom(name: string) {
 export async function joinRoom(code: string) {
   const supabase = await createClient()
   
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  if (userError || !user) {
+  const userId = await getGuestSession()
+  if (!userId) {
     return { error: "Not authenticated" }
   }
 
@@ -100,7 +101,7 @@ export async function joinRoom(code: string) {
     .from("room_participants")
     .select("*")
     .eq("room_id", room.id)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .single()
 
   if (existingParticipant) {
@@ -112,8 +113,8 @@ export async function joinRoom(code: string) {
     .from("room_participants")
     .insert({
       room_id: room.id,
-      user_id: user.id,
-      role: "viewer" as Role,
+      user_id: userId,
+      role: "participant" as Role,
     })
 
   if (participantError) {
@@ -124,13 +125,13 @@ export async function joinRoom(code: string) {
   const { data: profile } = await supabase
     .from("profiles")
     .select("username")
-    .eq("id", user.id)
+    .eq("id", userId)
     .single()
 
   // Add system message
   await supabase.from("messages").insert({
     room_id: room.id,
-    user_id: user.id,
+    user_id: userId,
     content: `${profile?.username || "Someone"} joined the room`,
     message_type: "system",
   })
@@ -142,8 +143,8 @@ export async function joinRoom(code: string) {
 export async function updateVideo(roomId: string, videoId: string, videoTitle?: string) {
   const supabase = await createClient()
   
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  if (userError || !user) {
+  const userId = await getGuestSession()
+  if (!userId) {
     return { error: "Not authenticated" }
   }
 
@@ -152,10 +153,10 @@ export async function updateVideo(roomId: string, videoId: string, videoTitle?: 
     .from("room_participants")
     .select("role")
     .eq("room_id", roomId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .single()
 
-  if (!participant || participant.role === "viewer") {
+  if (!participant || participant.role === "participant") {
     return { error: "You don't have permission to change the video" }
   }
 
@@ -179,13 +180,13 @@ export async function updateVideo(roomId: string, videoId: string, videoTitle?: 
   const { data: profile } = await supabase
     .from("profiles")
     .select("username")
-    .eq("id", user.id)
+    .eq("id", userId)
     .single()
 
   // Add system message
   await supabase.from("messages").insert({
     room_id: roomId,
-    user_id: user.id,
+    user_id: userId,
     content: `${profile?.username || "Someone"} changed the video`,
     message_type: "system",
   })
@@ -196,8 +197,8 @@ export async function updateVideo(roomId: string, videoId: string, videoTitle?: 
 export async function updateParticipantRole(roomId: string, targetUserId: string, newRole: Role) {
   const supabase = await createClient()
   
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  if (userError || !user) {
+  const userId = await getGuestSession()
+  if (!userId) {
     return { error: "Not authenticated" }
   }
 
@@ -208,7 +209,7 @@ export async function updateParticipantRole(roomId: string, targetUserId: string
     .eq("id", roomId)
     .single()
 
-  if (!room || room.host_id !== user.id) {
+  if (!room || room.host_id !== userId) {
     return { error: "Only the host can change roles" }
   }
 
@@ -225,7 +226,7 @@ export async function updateParticipantRole(roomId: string, targetUserId: string
       .from("room_participants")
       .update({ role: "moderator" })
       .eq("room_id", roomId)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
   }
 
   // Update target user role
@@ -243,9 +244,9 @@ export async function updateParticipantRole(roomId: string, targetUserId: string
   const { data: profiles } = await supabase
     .from("profiles")
     .select("id, username")
-    .in("id", [user.id, targetUserId])
+    .in("id", [userId, targetUserId])
 
-  const currentUserProfile = profiles?.find(p => p.id === user.id)
+  const currentUserProfile = profiles?.find(p => p.id === userId)
   const targetUserProfile = profiles?.find(p => p.id === targetUserId)
 
   // Add system message
@@ -255,12 +256,12 @@ export async function updateParticipantRole(roomId: string, targetUserId: string
   } else if (newRole === "moderator") {
     message = `${targetUserProfile?.username} is now a moderator`
   } else {
-    message = `${targetUserProfile?.username} is now a viewer`
+    message = `${targetUserProfile?.username} is now a participant`
   }
 
   await supabase.from("messages").insert({
     room_id: roomId,
-    user_id: user.id,
+    user_id: userId,
     content: message,
     message_type: "system",
   })
@@ -271,8 +272,8 @@ export async function updateParticipantRole(roomId: string, targetUserId: string
 export async function sendMessage(roomId: string, content: string) {
   const supabase = await createClient()
   
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  if (userError || !user) {
+  const userId = await getGuestSession()
+  if (!userId) {
     return { error: "Not authenticated" }
   }
 
@@ -280,7 +281,7 @@ export async function sendMessage(roomId: string, content: string) {
     .from("messages")
     .insert({
       room_id: roomId,
-      user_id: user.id,
+      user_id: userId,
       content,
       message_type: "user",
     })
@@ -295,8 +296,8 @@ export async function sendMessage(roomId: string, content: string) {
 export async function leaveRoom(roomId: string) {
   const supabase = await createClient()
   
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  if (userError || !user) {
+  const userId = await getGuestSession()
+  if (!userId) {
     return { error: "Not authenticated" }
   }
 
@@ -304,7 +305,7 @@ export async function leaveRoom(roomId: string) {
   const { data: profile } = await supabase
     .from("profiles")
     .select("username")
-    .eq("id", user.id)
+    .eq("id", userId)
     .single()
 
   // Check if user is host
@@ -314,7 +315,7 @@ export async function leaveRoom(roomId: string) {
     .eq("id", roomId)
     .single()
 
-  if (room?.host_id === user.id) {
+  if (room?.host_id === userId) {
     // If host is leaving, delete the room
     await supabase.from("rooms").delete().eq("id", roomId)
     return { success: true, roomDeleted: true }
@@ -325,12 +326,12 @@ export async function leaveRoom(roomId: string) {
     .from("room_participants")
     .delete()
     .eq("room_id", roomId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
 
   // Add system message
   await supabase.from("messages").insert({
     room_id: roomId,
-    user_id: user.id,
+    user_id: userId,
     content: `${profile?.username || "Someone"} left the room`,
     message_type: "system",
   })
@@ -341,8 +342,8 @@ export async function leaveRoom(roomId: string) {
 export async function syncPlayback(roomId: string, isPlaying: boolean, playbackTime: number) {
   const supabase = await createClient()
   
-  const { data: { user }, error: userError } = await supabase.auth.getUser()
-  if (userError || !user) {
+  const userId = await getGuestSession()
+  if (!userId) {
     return { error: "Not authenticated" }
   }
 
@@ -351,10 +352,10 @@ export async function syncPlayback(roomId: string, isPlaying: boolean, playbackT
     .from("room_participants")
     .select("role")
     .eq("room_id", roomId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .single()
 
-  if (!participant || participant.role === "viewer") {
+  if (!participant || participant.role === "participant") {
     return { error: "You don't have permission to control playback" }
   }
 
