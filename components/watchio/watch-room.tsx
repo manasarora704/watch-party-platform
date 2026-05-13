@@ -1,15 +1,9 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import Link from "next/link"
 import { 
-  Play, 
-  Pause, 
-  SkipForward,
-  Volume2,
-  VolumeX,
-  Maximize,
   Users,
   MessageCircle,
   Send,
@@ -19,19 +13,41 @@ import {
   Copy,
   Check,
   ArrowLeft,
-  X,
   Settings,
   MoreVertical,
-  Smile
+  Smile,
+  Link2,
+  UserPlus,
+  ShieldPlus,
+  UserMinus,
+  Play,
+  Video
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
+
+type Role = "host" | "moderator" | "participant"
 
 interface Participant {
   id: string
   name: string
-  role: "host" | "moderator" | "participant"
+  role: Role
   avatar: string
   color: string
   online: boolean
@@ -41,13 +57,14 @@ interface Message {
   id: string
   authorId: string
   authorName: string
-  role: "host" | "moderator" | "participant"
+  role: Role
   text: string
   timestamp: Date
   color: string
+  type: "chat" | "system"
 }
 
-const mockParticipants: Participant[] = [
+const initialParticipants: Participant[] = [
   { id: "1", name: "You", role: "host", avatar: "Y", color: "oklch(0.75 0.18 195)", online: true },
   { id: "2", name: "Alex", role: "moderator", avatar: "A", color: "oklch(0.65 0.25 330)", online: true },
   { id: "3", name: "Jordan", role: "participant", avatar: "J", color: "oklch(0.7 0.2 145)", online: true },
@@ -55,14 +72,25 @@ const mockParticipants: Participant[] = [
   { id: "5", name: "Taylor", role: "participant", avatar: "T", color: "oklch(0.6 0.2 280)", online: false },
 ]
 
-const mockMessages: Message[] = [
-  { id: "1", authorId: "2", authorName: "Alex", role: "moderator", text: "This episode is so good!", timestamp: new Date(Date.now() - 300000), color: "oklch(0.65 0.25 330)" },
-  { id: "2", authorId: "3", authorName: "Jordan", role: "participant", text: "I can&apos;t believe that twist 😱", timestamp: new Date(Date.now() - 240000), color: "oklch(0.7 0.2 145)" },
-  { id: "3", authorId: "1", authorName: "You", role: "host", text: "Told you it was worth watching!", timestamp: new Date(Date.now() - 180000), color: "oklch(0.75 0.18 195)" },
-  { id: "4", authorId: "4", authorName: "Sam", role: "participant", text: "The cinematography is incredible", timestamp: new Date(Date.now() - 120000), color: "oklch(0.8 0.15 85)" },
+const initialMessages: Message[] = [
+  { id: "1", authorId: "2", authorName: "Alex", role: "moderator", text: "This video is so good!", timestamp: new Date(Date.now() - 300000), color: "oklch(0.65 0.25 330)", type: "chat" },
+  { id: "2", authorId: "3", authorName: "Jordan", role: "participant", text: "I can't believe that twist", timestamp: new Date(Date.now() - 240000), color: "oklch(0.7 0.2 145)", type: "chat" },
+  { id: "3", authorId: "1", authorName: "You", role: "host", text: "Told you it was worth watching!", timestamp: new Date(Date.now() - 180000), color: "oklch(0.75 0.18 195)", type: "chat" },
 ]
 
-function RoleBadge({ role }: { role: "host" | "moderator" | "participant" }) {
+function extractYouTubeId(url: string): string | null {
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
+    /^([a-zA-Z0-9_-]{11})$/
+  ]
+  for (const pattern of patterns) {
+    const match = url.match(pattern)
+    if (match) return match[1]
+  }
+  return null
+}
+
+function RoleBadge({ role }: { role: Role }) {
   if (role === "host") {
     return (
       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-primary/20 text-primary">
@@ -79,43 +107,41 @@ function RoleBadge({ role }: { role: "host" | "moderator" | "participant" }) {
       </span>
     )
   }
-  return null
+  return (
+    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-muted text-muted-foreground">
+      <User className="w-3 h-3" />
+      Viewer
+    </span>
+  )
+}
+
+function RoleIcon({ role }: { role: Role }) {
+  if (role === "host") return <Crown className="w-4 h-4 text-primary" />
+  if (role === "moderator") return <Shield className="w-4 h-4 text-accent" />
+  return <User className="w-4 h-4 text-muted-foreground" />
 }
 
 export function WatchRoom({ roomCode }: { roomCode: string }) {
-  const [isPlaying, setIsPlaying] = useState(false)
-  const [currentTime, setCurrentTime] = useState(745) // 12:25
-  const [duration] = useState(2180) // 36:20
-  const [volume, setVolume] = useState(80)
-  const [isMuted, setIsMuted] = useState(false)
+  const [videoId, setVideoId] = useState("dQw4w9WgXcQ") // Default video
+  const [videoUrl, setVideoUrl] = useState("")
+  const [showChangeVideo, setShowChangeVideo] = useState(false)
+  const [urlError, setUrlError] = useState("")
+  const [copied, setCopied] = useState(false)
   const [showChat, setShowChat] = useState(true)
   const [showParticipants, setShowParticipants] = useState(false)
-  const [copied, setCopied] = useState(false)
   const [message, setMessage] = useState("")
-  const [messages, setMessages] = useState<Message[]>(mockMessages)
-  const [participants] = useState<Participant[]>(mockParticipants)
+  const [messages, setMessages] = useState<Message[]>(initialMessages)
+  const [participants, setParticipants] = useState<Participant[]>(initialParticipants)
+  const [currentUserId] = useState("1") // Current user is "You"
   const chatEndRef = useRef<HTMLDivElement>(null)
-  const progressRef = useRef<HTMLDivElement>(null)
+
+  const currentUser = participants.find(p => p.id === currentUserId)
+  const canChangeVideo = currentUser?.role === "host" || currentUser?.role === "moderator"
+  const canManageRoles = currentUser?.role === "host"
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
-
-  useEffect(() => {
-    let interval: NodeJS.Timeout
-    if (isPlaying) {
-      interval = setInterval(() => {
-        setCurrentTime((prev) => (prev < duration ? prev + 1 : prev))
-      }, 1000)
-    }
-    return () => clearInterval(interval)
-  }, [isPlaying, duration])
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins}:${secs.toString().padStart(2, "0")}`
-  }
 
   const handleCopyCode = () => {
     navigator.clipboard.writeText(roomCode)
@@ -123,26 +149,85 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const addSystemMessage = useCallback((text: string) => {
+    const systemMsg: Message = {
+      id: Date.now().toString(),
+      authorId: "system",
+      authorName: "System",
+      role: "participant",
+      text,
+      timestamp: new Date(),
+      color: "oklch(0.5 0 0)",
+      type: "system"
+    }
+    setMessages(prev => [...prev, systemMsg])
+  }, [])
+
   const handleSendMessage = () => {
-    if (!message.trim()) return
+    if (!message.trim() || !currentUser) return
     const newMessage: Message = {
       id: Date.now().toString(),
-      authorId: "1",
-      authorName: "You",
-      role: "host",
+      authorId: currentUserId,
+      authorName: currentUser.name,
+      role: currentUser.role,
       text: message,
       timestamp: new Date(),
-      color: "oklch(0.75 0.18 195)",
+      color: currentUser.color,
+      type: "chat"
     }
-    setMessages([...messages, newMessage])
+    setMessages(prev => [...prev, newMessage])
     setMessage("")
   }
 
-  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!progressRef.current) return
-    const rect = progressRef.current.getBoundingClientRect()
-    const percent = (e.clientX - rect.left) / rect.width
-    setCurrentTime(Math.floor(percent * duration))
+  const handleChangeVideo = () => {
+    if (!canChangeVideo) return
+    
+    const id = extractYouTubeId(videoUrl.trim())
+    if (!id) {
+      setUrlError("Please enter a valid YouTube URL or video ID")
+      return
+    }
+    
+    setVideoId(id)
+    setShowChangeVideo(false)
+    setVideoUrl("")
+    setUrlError("")
+    addSystemMessage(`${currentUser?.name} changed the video`)
+  }
+
+  const handlePromoteToModerator = (participantId: string) => {
+    if (!canManageRoles) return
+    setParticipants(prev => prev.map(p => 
+      p.id === participantId ? { ...p, role: "moderator" as Role } : p
+    ))
+    const participant = participants.find(p => p.id === participantId)
+    if (participant) {
+      addSystemMessage(`${currentUser?.name} promoted ${participant.name} to Moderator`)
+    }
+  }
+
+  const handlePromoteToHost = (participantId: string) => {
+    if (!canManageRoles) return
+    setParticipants(prev => prev.map(p => {
+      if (p.id === participantId) return { ...p, role: "host" as Role }
+      if (p.id === currentUserId) return { ...p, role: "moderator" as Role }
+      return p
+    }))
+    const participant = participants.find(p => p.id === participantId)
+    if (participant) {
+      addSystemMessage(`${currentUser?.name} transferred host to ${participant.name}`)
+    }
+  }
+
+  const handleDemoteToViewer = (participantId: string) => {
+    if (!canManageRoles) return
+    setParticipants(prev => prev.map(p => 
+      p.id === participantId ? { ...p, role: "participant" as Role } : p
+    ))
+    const participant = participants.find(p => p.id === participantId)
+    if (participant) {
+      addSystemMessage(`${currentUser?.name} changed ${participant.name} to Viewer`)
+    }
   }
 
   const onlineCount = participants.filter((p) => p.online).length
@@ -156,7 +241,7 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
             <ArrowLeft className="w-5 h-5 text-muted-foreground" />
           </Link>
           <div>
-            <h1 className="font-semibold text-foreground">Friday Movie Night</h1>
+            <h1 className="font-semibold text-foreground">Watch Party</h1>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <span className="font-mono">{roomCode}</span>
               <button onClick={handleCopyCode} className="p-1 hover:text-foreground transition-colors">
@@ -167,6 +252,19 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Change Video Button - Only for Host/Moderator */}
+          {canChangeVideo && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowChangeVideo(true)}
+              className="gap-2 border-primary/50 text-primary hover:bg-primary/10"
+            >
+              <Video className="w-4 h-4" />
+              Change Video
+            </Button>
+          )}
+          
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary text-sm">
             <div className="w-2 h-2 rounded-full bg-chart-3 animate-pulse" />
             <span>{onlineCount} watching</span>
@@ -174,7 +272,10 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setShowParticipants(!showParticipants)}
+            onClick={() => {
+              setShowParticipants(!showParticipants)
+              if (!showParticipants) setShowChat(false)
+            }}
             className={showParticipants ? "bg-secondary" : ""}
           >
             <Users className="w-5 h-5" />
@@ -182,7 +283,10 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setShowChat(!showChat)}
+            onClick={() => {
+              setShowChat(!showChat)
+              if (!showChat) setShowParticipants(false)
+            }}
             className={showChat ? "bg-secondary" : ""}
           >
             <MessageCircle className="w-5 h-5" />
@@ -196,90 +300,46 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Video Player */}
-        <div className="flex-1 flex flex-col">
-          {/* Video Container */}
-          <div className="flex-1 relative bg-card/50 flex items-center justify-center group">
-            {/* Mock video */}
-            <div className="absolute inset-4 rounded-xl bg-card overflow-hidden">
-              <div className="absolute inset-0 flex items-center justify-center">
-                <button
-                  onClick={() => setIsPlaying(!isPlaying)}
-                  className="w-20 h-20 rounded-full bg-background/80 backdrop-blur-sm flex items-center justify-center hover:bg-background/90 transition-all group-hover:scale-100 scale-90"
-                >
-                  {isPlaying ? (
-                    <Pause className="w-8 h-8 text-foreground" />
-                  ) : (
-                    <Play className="w-8 h-8 text-foreground fill-foreground ml-1" />
-                  )}
-                </button>
-              </div>
-
-              {/* Video info overlay */}
-              <div className="absolute top-4 left-4 right-4 flex justify-between items-start opacity-0 group-hover:opacity-100 transition-opacity">
-                <div className="px-3 py-1.5 rounded-lg bg-background/80 backdrop-blur-sm">
-                  <span className="text-sm font-medium">Stranger Things S4E9</span>
-                </div>
-              </div>
-            </div>
+        <div className="flex-1 flex flex-col bg-black">
+          {/* YouTube Iframe Container */}
+          <div className="flex-1 relative">
+            <iframe
+              src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1`}
+              title="YouTube video player"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+              className="absolute inset-0 w-full h-full"
+            />
           </div>
 
-          {/* Video Controls */}
-          <div className="p-4 glass border-t border-border/50">
-            {/* Progress Bar */}
-            <div
-              ref={progressRef}
-              onClick={handleSeek}
-              className="h-1.5 bg-muted rounded-full mb-4 cursor-pointer group/progress"
-            >
-              <div
-                className="h-full bg-primary rounded-full relative"
-                style={{ width: `${(currentTime / duration) * 100}%` }}
-              >
-                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-primary opacity-0 group-hover/progress:opacity-100 transition-opacity" />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={() => setIsPlaying(!isPlaying)}
-                  className="p-2 rounded-lg hover:bg-secondary transition-colors"
-                >
-                  {isPlaying ? (
-                    <Pause className="w-6 h-6" />
-                  ) : (
-                    <Play className="w-6 h-6 fill-current" />
-                  )}
-                </button>
-                <button className="p-2 rounded-lg hover:bg-secondary transition-colors">
-                  <SkipForward className="w-5 h-5" />
-                </button>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setIsMuted(!isMuted)}
-                    className="p-2 rounded-lg hover:bg-secondary transition-colors"
-                  >
-                    {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-                  </button>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={isMuted ? 0 : volume}
-                    onChange={(e) => setVolume(Number(e.target.value))}
-                    className="w-20 h-1 bg-muted rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
-                  />
-                </div>
-                <span className="text-sm text-muted-foreground font-mono">
-                  {formatTime(currentTime)} / {formatTime(duration)}
+          {/* Role indicator bar */}
+          <div className="px-4 py-2 bg-card/80 backdrop-blur-sm border-t border-border/50 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <RoleIcon role={currentUser?.role || "participant"} />
+                <span className="text-sm text-muted-foreground">
+                  You are {currentUser?.role === "host" ? "the Host" : currentUser?.role === "moderator" ? "a Moderator" : "a Viewer"}
                 </span>
               </div>
-
-              <div className="flex items-center gap-2">
-                <button className="p-2 rounded-lg hover:bg-secondary transition-colors">
-                  <Maximize className="w-5 h-5" />
-                </button>
-              </div>
+            </div>
+            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+              {canChangeVideo ? (
+                <span className="flex items-center gap-1.5 text-chart-3">
+                  <Check className="w-3.5 h-3.5" />
+                  Can change video
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5">
+                  <Play className="w-3.5 h-3.5" />
+                  Watch only
+                </span>
+              )}
+              {canManageRoles && (
+                <span className="flex items-center gap-1.5 text-primary">
+                  <Crown className="w-3.5 h-3.5" />
+                  Can manage roles
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -330,23 +390,33 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
                   <ScrollArea className="flex-1 p-4">
                     <div className="space-y-4">
                       {messages.map((msg) => (
-                        <div key={msg.id} className="flex gap-3">
-                          <div
-                            className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium shrink-0"
-                            style={{ background: msg.color }}
-                          >
-                            {msg.authorName[0]}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="font-medium text-sm">{msg.authorName}</span>
-                              <RoleBadge role={msg.role} />
-                              <span className="text-xs text-muted-foreground">
-                                {msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        <div key={msg.id}>
+                          {msg.type === "system" ? (
+                            <div className="text-center py-2">
+                              <span className="text-xs text-muted-foreground bg-secondary/50 px-3 py-1 rounded-full">
+                                {msg.text}
                               </span>
                             </div>
-                            <p className="text-sm text-foreground/90 break-words">{msg.text}</p>
-                          </div>
+                          ) : (
+                            <div className="flex gap-3">
+                              <div
+                                className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium shrink-0 text-white"
+                                style={{ background: msg.color }}
+                              >
+                                {msg.authorName[0]}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="font-medium text-sm">{msg.authorName}</span>
+                                  <RoleBadge role={msg.role} />
+                                  <span className="text-xs text-muted-foreground">
+                                    {msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                  </span>
+                                </div>
+                                <p className="text-sm text-foreground/90 break-words">{msg.text}</p>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ))}
                       <div ref={chatEndRef} />
@@ -383,41 +453,64 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
               {/* Participants */}
               {showParticipants && (
                 <ScrollArea className="flex-1 p-4">
-                  <div className="space-y-2">
-                    {participants.map((participant) => (
-                      <div
-                        key={participant.id}
-                        className="flex items-center gap-3 p-3 rounded-xl hover:bg-secondary/50 transition-colors group"
-                      >
-                        <div className="relative">
-                          <div
-                            className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium"
-                            style={{ background: participant.color }}
-                          >
-                            {participant.avatar}
-                          </div>
-                          <div
-                            className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${
-                              participant.online ? "bg-chart-3" : "bg-muted-foreground"
-                            }`}
+                  <div className="space-y-1">
+                    {/* Section: Host */}
+                    <div className="mb-4">
+                      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-2">
+                        Host
+                      </h3>
+                      {participants.filter(p => p.role === "host").map((participant) => (
+                        <ParticipantItem
+                          key={participant.id}
+                          participant={participant}
+                          currentUserId={currentUserId}
+                          canManageRoles={canManageRoles}
+                          onPromoteToModerator={handlePromoteToModerator}
+                          onPromoteToHost={handlePromoteToHost}
+                          onDemoteToViewer={handleDemoteToViewer}
+                        />
+                      ))}
+                    </div>
+
+                    {/* Section: Moderators */}
+                    {participants.some(p => p.role === "moderator") && (
+                      <div className="mb-4">
+                        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-2">
+                          Moderators
+                        </h3>
+                        {participants.filter(p => p.role === "moderator").map((participant) => (
+                          <ParticipantItem
+                            key={participant.id}
+                            participant={participant}
+                            currentUserId={currentUserId}
+                            canManageRoles={canManageRoles}
+                            onPromoteToModerator={handlePromoteToModerator}
+                            onPromoteToHost={handlePromoteToHost}
+                            onDemoteToViewer={handleDemoteToViewer}
                           />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-sm truncate">{participant.name}</span>
-                            <RoleBadge role={participant.role} />
-                          </div>
-                          <span className="text-xs text-muted-foreground">
-                            {participant.online ? "Online" : "Offline"}
-                          </span>
-                        </div>
-                        {participant.id !== "1" && (
-                          <button className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-secondary transition-all">
-                            <MoreVertical className="w-4 h-4 text-muted-foreground" />
-                          </button>
-                        )}
+                        ))}
                       </div>
-                    ))}
+                    )}
+
+                    {/* Section: Viewers */}
+                    {participants.some(p => p.role === "participant") && (
+                      <div>
+                        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-2">
+                          Viewers
+                        </h3>
+                        {participants.filter(p => p.role === "participant").map((participant) => (
+                          <ParticipantItem
+                            key={participant.id}
+                            participant={participant}
+                            currentUserId={currentUserId}
+                            canManageRoles={canManageRoles}
+                            onPromoteToModerator={handlePromoteToModerator}
+                            onPromoteToHost={handlePromoteToHost}
+                            onDemoteToViewer={handleDemoteToViewer}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </ScrollArea>
               )}
@@ -425,6 +518,146 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
           )}
         </AnimatePresence>
       </div>
+
+      {/* Change Video Dialog */}
+      <Dialog open={showChangeVideo} onOpenChange={setShowChangeVideo}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Link2 className="w-5 h-5 text-primary" />
+              Change Video
+            </DialogTitle>
+            <DialogDescription>
+              Paste a YouTube URL or video ID to change the video for everyone in the room.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Input
+                placeholder="https://youtube.com/watch?v=... or video ID"
+                value={videoUrl}
+                onChange={(e) => {
+                  setVideoUrl(e.target.value)
+                  setUrlError("")
+                }}
+                onKeyDown={(e) => e.key === "Enter" && handleChangeVideo()}
+                className="bg-input"
+              />
+              {urlError && (
+                <p className="text-sm text-destructive">{urlError}</p>
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Supported formats:
+              <ul className="mt-1 space-y-0.5 list-disc list-inside">
+                <li>youtube.com/watch?v=VIDEO_ID</li>
+                <li>youtu.be/VIDEO_ID</li>
+                <li>Just the video ID</li>
+              </ul>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowChangeVideo(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleChangeVideo} className="gap-2">
+              <Play className="w-4 h-4" />
+              Play Video
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+function ParticipantItem({
+  participant,
+  currentUserId,
+  canManageRoles,
+  onPromoteToModerator,
+  onPromoteToHost,
+  onDemoteToViewer,
+}: {
+  participant: Participant
+  currentUserId: string
+  canManageRoles: boolean
+  onPromoteToModerator: (id: string) => void
+  onPromoteToHost: (id: string) => void
+  onDemoteToViewer: (id: string) => void
+}) {
+  const isCurrentUser = participant.id === currentUserId
+  const showActions = canManageRoles && !isCurrentUser
+
+  return (
+    <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-secondary/50 transition-colors group">
+      <div className="relative">
+        <div
+          className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium text-white"
+          style={{ background: participant.color }}
+        >
+          {participant.avatar}
+        </div>
+        <div
+          className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${
+            participant.online ? "bg-chart-3" : "bg-muted-foreground"
+          }`}
+        />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-sm truncate">
+            {participant.name}
+            {isCurrentUser && <span className="text-muted-foreground"> (you)</span>}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {participant.online ? "Online" : "Offline"}
+          </span>
+          {participant.role !== "participant" && (
+            <span className="text-xs text-muted-foreground">
+              {participant.role === "host" ? "Can manage roles" : "Can change video"}
+            </span>
+          )}
+        </div>
+      </div>
+      
+      {showActions && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-secondary transition-all">
+              <MoreVertical className="w-4 h-4 text-muted-foreground" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            {participant.role === "participant" && (
+              <DropdownMenuItem onClick={() => onPromoteToModerator(participant.id)}>
+                <ShieldPlus className="w-4 h-4 mr-2 text-accent" />
+                Make Moderator
+              </DropdownMenuItem>
+            )}
+            {participant.role !== "host" && (
+              <DropdownMenuItem onClick={() => onPromoteToHost(participant.id)}>
+                <Crown className="w-4 h-4 mr-2 text-primary" />
+                Transfer Host
+              </DropdownMenuItem>
+            )}
+            {participant.role === "moderator" && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem 
+                  onClick={() => onDemoteToViewer(participant.id)}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <UserMinus className="w-4 h-4 mr-2" />
+                  Remove Moderator
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   )
 }
