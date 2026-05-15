@@ -49,10 +49,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { MediaSettingsDialog } from "@/components/media-settings-dialog"
 import EmojiPicker, { Theme } from 'emoji-picker-react'
 import { useRoom } from "@/hooks/use-room"
 import { useWebRTC } from "@/hooks/use-webrtc"
 import { sendMessage, updateVideo, updateParticipantRole, leaveRoom } from "@/lib/actions/rooms"
+import { VideoGrid } from "@/components/video-grid"
 import type { Role } from "@/lib/types"
 
 function extractYouTubeId(url: string): string | null {
@@ -115,35 +117,6 @@ function getAvatarColor(userId: string): string {
   return colors[Math.abs(hash) % colors.length]
 }
 
-function VideoStream({ stream, muted = false, label }: { stream: MediaStream | null, muted?: boolean, label: string }) {
-  const videoRef = useRef<HTMLVideoElement>(null)
-  
-  useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream
-    }
-  }, [stream])
-  
-  if (!stream) return null
-  
-  return (
-    <div className="relative w-32 h-24 shrink-0 rounded-lg overflow-hidden bg-black/80 border border-white/10 shadow-lg group">
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted={muted}
-        className="w-full h-full object-cover"
-      />
-      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent p-1.5 pt-4">
-        <span className="text-[10px] font-medium text-white shadow-sm truncate block px-1">
-          {label}
-        </span>
-      </div>
-    </div>
-  )
-}
-
 export function WatchRoom({ roomCode }: { roomCode: string }) {
   const router = useRouter()
   const { room, participants, messages, currentUser, onlineUsers, emitPlaybackSync, addOptimisticMessage, loading, error } = useRoom(roomCode)
@@ -158,6 +131,7 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
   const [sending, setSending] = useState(false)
   const [showLeaveDialog, setShowLeaveDialog] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
+  const [showMediaSettings, setShowMediaSettings] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
   
   const { localStream, remoteStreams, isAudioEnabled, isVideoEnabled, toggleAudio, toggleVideo } = useWebRTC(room?.id || "", currentUser?.id)
@@ -291,6 +265,7 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
           <button 
             onClick={() => setShowLeaveDialog(true)}
             className="p-2 rounded-lg hover:bg-secondary transition-colors shrink-0"
+            title="Leave room"
           >
             <ArrowLeft className="w-5 h-5 text-muted-foreground" />
           </button>
@@ -365,10 +340,19 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
             </Button>
           </div>
 
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setShowMediaSettings(true)}
+            className="h-8 w-8 md:h-9 md:w-9"
+          >
+            <Settings className="w-4 h-4" />
+          </Button>
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="h-8 w-8 md:h-9 md:w-9">
-                <Settings className="w-4 h-4" />
+                <ChevronDown className="w-4 h-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -384,7 +368,7 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
       {/* Main Content */}
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
         {/* Video Player */}
-        <div className="flex-1 flex flex-col bg-black min-h-0">
+        <div className="flex-1 flex flex-col bg-black min-h-0 relative">
           <div className="flex-1 relative">
             {room.current_video_id ? (
               <div className="absolute inset-0 w-full h-full">
@@ -427,22 +411,14 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
               </div>
             )}
             
-            {/* WebRTC Video Grid (Floating at bottom of player) */}
+            {/* WebRTC Video Grid Overlay */}
             {(localStream || Object.keys(remoteStreams).length > 0) && (
-              <div className="absolute bottom-4 left-4 right-4 flex items-end gap-3 overflow-x-auto pb-2 pointer-events-auto z-10 custom-scrollbar">
-                {localStream && (
-                  <VideoStream stream={localStream} muted={true} label="You" />
-                )}
-                {Object.entries(remoteStreams).map(([peerId, stream]) => {
-                  const participant = participants.find(p => p.user_id === peerId)
-                  return (
-                    <VideoStream 
-                      key={peerId} 
-                      stream={stream} 
-                      label={participant?.profiles?.username || "Someone"} 
-                    />
-                  )
-                })}
+              <div className="absolute inset-0">
+                <VideoGrid
+                  localStream={localStream}
+                  remoteStreams={remoteStreams}
+                  participants={participants}
+                />
               </div>
             )}
           </div>
@@ -531,6 +507,7 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
                             <div className="flex gap-3">
                               <div
                                 className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 text-white shadow-sm"
+                                // @ts-expect-error - Dynamic inline style for avatar color
                                 style={{ background: getAvatarColor(msg.user_id) }}
                               >
                                 {msg.profiles?.username?.[0]?.toUpperCase() || "?"}
@@ -591,6 +568,7 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
                         <button
                           onClick={() => setEmojiOpen(!emojiOpen)}
                           className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                          title="Open emoji picker"
                         >
                           <Smile className={`w-4 h-4 ${emojiOpen ? 'text-primary' : ''}`} />
                         </button>
@@ -725,6 +703,7 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
                             <div className="flex gap-2.5">
                               <div
                                 className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 text-white shadow-sm"
+                                // @ts-expect-error - Dynamic inline style for avatar color
                                 style={{ background: getAvatarColor(msg.user_id) }}
                               >
                                 {msg.profiles?.username?.[0]?.toUpperCase() || "?"}
@@ -769,7 +748,7 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
                         />
                         <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
                           <PopoverTrigger asChild>
-                            <button className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                            <button className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors" title="Open emoji picker">
                               <Smile className="w-4 h-4" />
                             </button>
                           </PopoverTrigger>
@@ -880,6 +859,23 @@ export function WatchRoom({ roomCode }: { roomCode: string }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Media Settings Dialog */}
+      <MediaSettingsDialog
+        open={showMediaSettings}
+        onOpenChange={setShowMediaSettings}
+        currentSettings={{
+          videoEnabled: isVideoEnabled,
+          audioEnabled: isAudioEnabled,
+          videoWidth: 1280,
+          videoHeight: 720,
+          frameRate: 30,
+        }}
+        onSave={(settings) => {
+          // Settings will be applied on next media toggle
+          console.log("Saved media settings:", settings)
+        }}
+      />
     </div>
   )
 }
@@ -910,6 +906,7 @@ function ParticipantItem({ participant, currentUserId, isOnline, canManageRoles,
         <div className="relative">
           <div
             className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium text-white"
+            // @ts-expect-error - Dynamic inline style for avatar color
             style={{ background: getAvatarColor(participant.user_id) }}
           >
             {participant.profiles?.username?.[0]?.toUpperCase() || "?"}

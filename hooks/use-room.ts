@@ -79,6 +79,7 @@ export function useRoom(roomCode: string) {
 
   useEffect(() => {
     let mounted = true
+    let roomChannel: ReturnType<typeof supabase.channel> | null = null
 
     const init = async () => {
       // Get current user via custom guest session
@@ -105,30 +106,42 @@ export function useRoom(roomCode: string) {
       // Fetch messages
       await fetchMessages(roomData.id)
 
+      if (!mounted) return
+
       setLoading(false)
 
-      // Set up realtime subscriptions
-      const roomChannel = supabase
-        .channel(`room:${roomData.id}`, {
-          config: {
-            presence: { key: userId },
-          },
-        })
+      // Set up realtime subscriptions - build channel first before adding listeners
+      const channelName = `room:${roomData.id}`
+      
+      roomChannel = supabase.channel(channelName, {
+        config: {
+          presence: { key: userId },
+        },
+      })
+
+      // Add all listeners BEFORE subscribe
+      roomChannel
         .on('presence', { event: 'sync' }, () => {
-          const newState = roomChannel.presenceState()
-          setOnlineUsers(Object.keys(newState))
+          if (roomChannel && mounted) {
+            const newState = roomChannel.presenceState()
+            setOnlineUsers(Object.keys(newState))
+          }
         })
         .on('broadcast', { event: 'playback_sync' }, (payload) => {
-          setRoom(prev => prev ? { ...prev, ...payload.payload } : prev)
+          if (mounted) {
+            setRoom(prev => prev ? { ...prev, ...payload.payload } : prev)
+          }
         })
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "rooms", filter: `id=eq.${roomData.id}` },
           (payload) => {
-            if (payload.eventType === "UPDATE") {
-              setRoom(payload.new as Room)
-            } else if (payload.eventType === "DELETE") {
-              setError("Room has been deleted")
+            if (mounted) {
+              if (payload.eventType === "UPDATE") {
+                setRoom(payload.new as Room)
+              } else if (payload.eventType === "DELETE") {
+                setError("Room has been deleted")
+              }
             }
           }
         )
@@ -136,17 +149,19 @@ export function useRoom(roomCode: string) {
           "postgres_changes",
           { event: "*", schema: "public", table: "room_participants", filter: `room_id=eq.${roomData.id}` },
           async () => {
-            await fetchParticipants(roomData.id)
-            // Re-check current user's role
-            const { data: updatedParticipant } = await supabase
-              .from("room_participants")
-              .select("role")
-              .eq("room_id", roomData.id)
-              .eq("user_id", userId)
-              .single()
-            
-            if (updatedParticipant) {
-              setCurrentUser({ id: userId, role: updatedParticipant.role as Role })
+            if (mounted) {
+              await fetchParticipants(roomData.id)
+              // Re-check current user's role
+              const { data: updatedParticipant } = await supabase
+                .from("room_participants")
+                .select("role")
+                .eq("room_id", roomData.id)
+                .eq("user_id", userId)
+                .single()
+              
+              if (updatedParticipant && mounted) {
+                setCurrentUser({ id: userId, role: updatedParticipant.role as Role })
+              }
             }
           }
         )
@@ -154,6 +169,8 @@ export function useRoom(roomCode: string) {
           "postgres_changes",
           { event: "INSERT", schema: "public", table: "messages", filter: `room_id=eq.${roomData.id}` },
           async (payload) => {
+            if (!mounted) return
+
             // Check if we already have this message optimistically
             setMessages(prev => {
               if (prev.some(m => m.id === payload.new.id || (m.content === payload.new.content && m.user_id === payload.new.user_id && new Date(payload.new.created_at).getTime() - new Date(m.created_at).getTime() < 2000))) {
@@ -169,7 +186,7 @@ export function useRoom(roomCode: string) {
               .eq("id", payload.new.id)
               .single()
 
-            if (newMessage) {
+            if (newMessage && mounted) {
               setMessages(prev => {
                 // Remove the optimistic message if it exists (match by content, user_id, and close timestamp)
                 const filtered = prev.filter(m => !(m.content === newMessage.content && m.user_id === newMessage.user_id && Math.abs(new Date(newMessage.created_at).getTime() - new Date(m.created_at).getTime()) < 5000));
@@ -178,21 +195,24 @@ export function useRoom(roomCode: string) {
             }
           }
         )
-        .subscribe(async (status) => {
-          if (status === 'SUBSCRIBED') {
-            await roomChannel.track({ online_at: new Date().toISOString() })
-          }
-        })
 
-      return () => {
-        supabase.removeChannel(roomChannel)
-      }
+      // Now subscribe AFTER all listeners are added
+      roomChannel.subscribe(async (status) => {
+        if (status === 'SUBSCRIBED' && mounted && roomChannel) {
+          await roomChannel.track({ online_at: new Date().toISOString() })
+        }
+      })
     }
 
     init()
 
     return () => {
       mounted = false
+      if (roomChannel) {
+        roomChannel.unsubscribe()
+        supabase.removeChannel(roomChannel)
+        roomChannel = null
+      }
     }
   }, [roomCode, supabase, fetchRoom, fetchParticipants, fetchMessages])
 

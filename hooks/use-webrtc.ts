@@ -3,14 +3,32 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { createClient } from "@/lib/supabase/client"
 
+export interface WebRTCStats {
+  bytesReceived: number
+  bytesSent: number
+  packetsLost: number
+  jitter: number
+  videoResolution?: { width: number; height: number }
+}
+
+export interface PeerStatus {
+  [key: string]: {
+    connectionState: RTCPeerConnectionState
+    iceConnectionState: RTCIceConnectionState
+    stats?: WebRTCStats
+  }
+}
+
 export function useWebRTC(roomId: string, userId: string | undefined) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null)
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({})
   const [isAudioEnabled, setIsAudioEnabled] = useState(false)
   const [isVideoEnabled, setIsVideoEnabled] = useState(false)
+  const [peerStats, setPeerStats] = useState<PeerStatus>({})
   
   const peersRef = useRef<Record<string, RTCPeerConnection>>({})
   const channelRef = useRef<any>(null)
+  const statsIntervalRef = useRef<NodeJS.Timeout>()
   const supabase = createClient()
 
   // Initialize signaling channel
@@ -75,8 +93,12 @@ export function useWebRTC(roomId: string, userId: string | undefined) {
     const pc = new RTCPeerConnection({
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
         { urls: 'stun:global.stun.twilio.com:3478' }
-      ]
+      ],
+      bundlePolicy: "max-bundle",
+      rtcpMuxPolicy: "require"
     })
 
     peersRef.current[targetUserId] = pc
@@ -105,7 +127,16 @@ export function useWebRTC(roomId: string, userId: string | undefined) {
     }
 
     pc.oniceconnectionstatechange = () => {
-      if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+      console.log(`ICE connection state with ${targetUserId}: ${pc.iceConnectionState}`)
+      
+      if (pc.iceConnectionState === 'disconnected') {
+        // Try to reconnect
+        setTimeout(() => {
+          if (pc.iceConnectionState === 'disconnected') {
+            removePeer(targetUserId)
+          }
+        }, 5000)
+      } else if (pc.iceConnectionState === 'failed' || pc.connectionState === 'failed') {
         removePeer(targetUserId)
       }
     }
@@ -231,14 +262,84 @@ export function useWebRTC(roomId: string, userId: string | undefined) {
       if (localStream) {
         localStream.getTracks().forEach(track => track.stop())
       }
+      if (statsIntervalRef.current) {
+        clearInterval(statsIntervalRef.current)
+      }
     }
   }, [localStream])
+
+  // Collect stats from peer connections
+  const collectStats = useCallback(async () => {
+    const stats: PeerStatus = {}
+    
+    for (const [peerId, pc] of Object.entries(peersRef.current)) {
+      stats[peerId] = {
+        connectionState: pc.connectionState,
+        iceConnectionState: pc.iceConnectionState,
+      }
+
+      try {
+        const reports = await pc.getStats()
+        let bytesReceived = 0
+        let bytesSent = 0
+        let packetsLost = 0
+        let jitter = 0
+        let videoResolution: { width: number; height: number } | undefined
+
+        reports.forEach(report => {
+          if (report.type === "inbound-rtp" && report.kind === "video") {
+            bytesReceived = report.bytesReceived || 0
+            packetsLost = report.packetsLost || 0
+            jitter = report.jitter || 0
+            if (report.frameWidth && report.frameHeight) {
+              videoResolution = {
+                width: report.frameWidth,
+                height: report.frameHeight,
+              }
+            }
+          }
+          if (report.type === "outbound-rtp" && report.kind === "video") {
+            bytesSent = report.bytesSent || 0
+          }
+        })
+
+        stats[peerId].stats = {
+          bytesReceived,
+          bytesSent,
+          packetsLost,
+          jitter,
+          videoResolution,
+        }
+      } catch (e) {
+        console.warn("Error collecting stats", e)
+      }
+    }
+
+    setPeerStats(stats)
+  }, [])
+
+  // Start periodic stats collection
+  useEffect(() => {
+    if (Object.keys(peersRef.current).length > 0) {
+      if (!statsIntervalRef.current) {
+        statsIntervalRef.current = setInterval(collectStats, 1000)
+      }
+    }
+
+    return () => {
+      if (statsIntervalRef.current) {
+        clearInterval(statsIntervalRef.current)
+        statsIntervalRef.current = undefined
+      }
+    }
+  }, [collectStats])
 
   return {
     localStream,
     remoteStreams,
     isAudioEnabled,
     isVideoEnabled,
+    peerStats,
     toggleAudio: () => toggleMedia('audio'),
     toggleVideo: () => toggleMedia('video')
   }
