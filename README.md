@@ -2,8 +2,7 @@
 
 > **Intern Assignment Submission** — Real-time synchronized YouTube watch party system with WebSocket-based communication, role-based access control, live chat, and peer-to-peer voice/video.
 
-**🌐 Live URL:** `https://your-watchio-app.vercel.app` ← _Replace with your Vercel URL after deploying_
-
+**🌐 Live URL:** (https://watch-party-platform.vercel.app/)
 ---
 
 ## 📑 Table of Contents
